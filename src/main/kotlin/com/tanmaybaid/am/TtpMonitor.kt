@@ -25,7 +25,7 @@ import io.ktor.serialization.jackson.jackson
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -52,8 +52,8 @@ class TtpMonitor : CliktCommand() {
         .help("[Optional] [Default: 30] Seconds to wait between polling for available slots.")
         .int().restrictTo(10..3600).convert { it.seconds }.default(30.seconds)
     private val backoffPeriod: Duration by option()
-        .help("[Optional] [Default: 60] Minutes to wait after identifying available slots.")
-        .int().restrictTo(60).convert { it.seconds }.default(1.hours)
+        .help("[Optional] [Default: 5] Minutes to wait after identifying available slots.")
+        .int().restrictTo(1).convert { it.seconds }.default(5.minutes)
     private val before: LocalDateTime by option()
         .help("[Optional] [Publisher called for any available slots] Date in the ISO_LOCAL_DATE_TIME format" +
                 " (e.g. 2024-05-01T08:25:30). Publisher will only be invoked if available slot is before this date.")
