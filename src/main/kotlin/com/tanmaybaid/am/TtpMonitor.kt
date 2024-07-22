@@ -1,5 +1,7 @@
 package com.tanmaybaid.am
 
+import com.fasterxml.jackson.core.JsonParser
+import com.fasterxml.jackson.core.StreamReadFeature
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.github.ajalt.clikt.core.CliktCommand
@@ -21,6 +23,7 @@ import io.ktor.client.engine.apache5.Apache5
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
 import java.time.LocalDate
+import java.time.LocalDateTime
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
@@ -35,6 +38,7 @@ class TtpMonitor : CliktCommand() {
             install(ContentNegotiation) {
                 jackson {
                     configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                    configure(JsonParser.Feature.INCLUDE_SOURCE_IN_LOCATION, true)
                     registerModules(JavaTimeModule())
                 }
             }
@@ -50,10 +54,10 @@ class TtpMonitor : CliktCommand() {
     private val backoffPeriod: Duration by option()
         .help("[Optional] [Default: 60] Minutes to wait after identifying available slots.")
         .int().restrictTo(60).convert { it.seconds }.default(1.hours)
-    private val before: LocalDate by option()
-        .help("[Optional] [Publisher called for any available slots] Date in the format yyyy-mm-dd, e.g. 2024-05-01." +
-                "Publisher will only be invoked if available slot is before this date.")
-        .convert { LocalDate.parse(it) }.default(LocalDate.MAX)
+    private val before: LocalDateTime by option()
+        .help("[Optional] [Publisher called for any available slots] Date in the ISO_LOCAL_DATE_TIME format" +
+                " (e.g. 2024-05-01T08:25:30). Publisher will only be invoked if available slot is before this date.")
+        .convert { LocalDateTime.parse(it) }.default(LocalDateTime.MAX)
     private val publishTo: List<String> by option()
         .help("[Optional] [Default: Log] Comma separated list of publishers, e.g. $PUBLISH_TO_EXAMPLES")
         .split(",").default(listOf("Log"))
@@ -84,9 +88,9 @@ class TtpMonitor : CliktCommand() {
                     logger.info("No slots found for $id")
                 } else {
                     slotAvailability.availableSlots.forEach { availableSlot ->
-                        if (availableSlot.isBefore(before)) {
-                            val message = "Found a slot at ${location.shortName} ($id) on $availableSlot." +
-                                    " Other available slots: ${slotAvailability.availableSlots.joinToString()}"
+                        if (availableSlot.active && availableSlot.startTimestamp.isBefore(before)) {
+                            val message = "Found a slot at ${location.shortName} ($id) starting at" +
+                                    " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
                             publishTo.forEach { publish(publishers, it, message) }
 
                             delay(backoffPeriod)

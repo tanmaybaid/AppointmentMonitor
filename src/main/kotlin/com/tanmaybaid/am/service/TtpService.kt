@@ -1,22 +1,44 @@
 package com.tanmaybaid.am.service
 
+import com.tanmaybaid.am.publisher.LogPublisher
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsText
 import java.time.LocalDate
+import java.time.LocalDateTime
+import org.apache.logging.log4j.LogManager
+import org.apache.logging.log4j.Logger
 
 class TtpService(private val http: HttpClient) {
     suspend fun getLocations(): List<Location> =
-        call("locations").body()
+        call("locations")
 
     suspend fun getSlotAvailability(location: Location): SlotAvailability =
-        call("slot-availability", "locationId" to location.id).body()
+        call("slot-availability", "locationId" to location.id)
 
-    private suspend fun call(api: String, vararg params: Pair<String, Any?>) = http.get {
-        url("$ENDPOINT/$api/")
-        params.forEach { parameter(it.first, it.second) }
+    private suspend inline fun <reified T> call(api: String, vararg params: Pair<String, Any?>): T {
+        val url = "$ENDPOINT/$api/"
+
+        val failed = "Request to $url with params: $params failed"
+        val response = try {
+            http.get {
+                url(url)
+                params.forEach { parameter(it.first, it.second) }
+            }
+        } catch (ex: Exception) {
+            logger.error("$failed due to ${ex.message}.", ex)
+            throw ex
+        }
+
+        try {
+            return response.body<T>()
+        } catch (ex: Exception) {
+            logger.error("$failed with response: ${response.bodyAsText()} due to ${ex.message}.", ex)
+            throw ex
+        }
     }
 
     data class LocationService(
@@ -44,11 +66,21 @@ class TtpService(private val http: HttpClient) {
     )
 
     data class SlotAvailability(
-        val availableSlots: List<LocalDate>,
-        val lastPublishedDate: LocalDate?
+        val availableSlots: List<AvailableSlot>,
+        val lastPublishedDate: LocalDateTime?
+    )
+
+    data class AvailableSlot(
+        val locationId: Int,
+        val startTimestamp: LocalDateTime,
+        val endTimestamp: LocalDateTime,
+        val active: Boolean,
+        val duration: Int,
+        val remoteInd: Boolean
     )
 
     companion object {
         private const val ENDPOINT = "https://ttp.cbp.dhs.gov/schedulerapi"
+        private val logger: Logger = LogManager.getLogger(LogPublisher::class.java.name)
     }
 }
