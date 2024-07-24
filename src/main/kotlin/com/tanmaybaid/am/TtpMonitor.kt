@@ -70,7 +70,7 @@ class TtpMonitor : CliktCommand() {
             LogPublisher(),
             PushoverPublisher(client),
             WebHookPublisher(client),
-        ).associateBy(Publisher::name)
+        ).associateBy(Publisher::name).mapKeys { it.key.lowercase() }
 
         run(ttp, publishers).join()
     }
@@ -129,7 +129,7 @@ class TtpMonitor : CliktCommand() {
         message: String
     ) = launch {
         val (publisherName, publisherRequest) = publishTo.split('=')
-        val publisher = publisherName?.let { publishers[it] }
+        val publisher = publisherName?.lowercase()?.let { publishers[it] }
 
         publisher?.publish(publisherRequest.orEmpty(), message)
     }
