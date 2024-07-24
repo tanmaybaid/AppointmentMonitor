@@ -51,9 +51,9 @@ class TtpMonitor : CliktCommand() {
     private val pollPeriod: Duration by option()
         .help("[Optional] [Default: 15] Seconds to wait between polling for available slots.")
         .int().restrictTo(10..3600).convert { it.seconds }.default(15.seconds)
-    private val backoffPeriod: Duration by option()
+    private val backoffPeriod: Duration? by option()
         .help("[Optional] [Defaults to poll period] Seconds to wait after identifying available slots.")
-        .int().restrictTo(10..36000).convert { it.seconds }.default(pollPeriod)
+        .int().restrictTo(10..36000).convert { it.seconds }
     private val before: LocalDateTime by option()
         .help("[Optional] [Publisher called for any available slots] Date in the ISO_LOCAL_DATE_TIME format" +
                 " (e.g. 2024-05-01T08:25:30). Publisher will only be invoked if available slot is before this date.")
@@ -102,7 +102,7 @@ class TtpMonitor : CliktCommand() {
                 }
             }
 
-            val delay = if (slotsFound) backoffPeriod else pollPeriod
+            val delay = if (slotsFound) backoffPeriod ?: pollPeriod else pollPeriod
             logger.info("Sleeping for $delay before checking again.")
             delay(delay)
         }
