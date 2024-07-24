@@ -1,7 +1,6 @@
 package com.tanmaybaid.am
 
 import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.core.StreamReadFeature
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.github.ajalt.clikt.core.CliktCommand
@@ -22,12 +21,16 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.apache5.Apache5
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
-import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
@@ -76,32 +79,20 @@ class TtpMonitor : CliktCommand() {
     }
 
     private suspend fun run(ttp: TtpService, publishers: Map<String, Publisher>) {
-        val availableLocations: Map<Int, TtpService.Location> = ttp.getLocations().associateBy { it.id }
-        val inputLocationByIds: Map<Int, TtpService.Location> = normalize(locationIds, availableLocations)
+        val availableLocations: List<TtpService.Location> = ttp.getLocations()
+        val inputLocations: Set<TtpService.Location> = normalize(locationIds.toSet(), availableLocations)
 
         while (!Thread.interrupted()) {
-            var slotsFound = false
-            inputLocationByIds.forEach { (id, location) ->
-                val slotAvailability: TtpService.SlotAvailability = ttp.getSlotAvailability(location)
-                logger.debug("SlotAvailability retrieved for $id (${location.shortName}): $slotAvailability")
-
-                if (slotAvailability.availableSlots.isEmpty()) {
-                    logger.info("No slots found for $id")
-                } else {
-                    slotAvailability.availableSlots.forEach { availableSlot ->
-                        if (availableSlot.active && availableSlot.startTimestamp.isBefore(before)) {
-                            val message = "Found a slot at ${location.shortName} ($id) starting at" +
-                                    " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
-                            publishTo.forEach { publish(publishers, it, message) }
-
-                            slotsFound = true
-                        } else {
-                            logger.info("Slot available, but after requested date of $before: $availableSlot.")
-                        }
-                    }
-                }
+            val hasAvailableSlots = inputLocations.associateWith { location ->
+                checkSlotAvailability(ttp, location, publishers)
+            }.mapValues { (_, deferred) ->
+                deferred.await()
             }
 
+            val locationsWithNoAvailableSlots = hasAvailableSlots.filter { !it.value }.keys.map { it.simpleName }
+            logger.info("No slots found for ${locationsWithNoAvailableSlots.joinToString()}.")
+
+            val slotsFound = hasAvailableSlots.values.reduce { a, b -> a || b }
             val delay = if (slotsFound) backoffPeriod ?: pollPeriod else pollPeriod
             logger.info("Sleeping for $delay before checking again.")
             delay(delay)
@@ -110,27 +101,55 @@ class TtpMonitor : CliktCommand() {
         logger.info("Exiting!")
     }
 
-    private suspend fun publish(publishers: Map<String, Publisher>, publishTo: String, message: String) {
-        val request = publishTo.split('=')
-        val publisher = publishers[request[0]]
-        val publisherRequest = request.getOrElse(1) { "" }
+    private suspend fun checkSlotAvailability(
+        ttp: TtpService,
+        location: TtpService.Location,
+        publishers: Map<String, Publisher>,
+    ) = with(CoroutineScope(coroutineContext)) {
+        async {
+            val slotAvailability: TtpService.SlotAvailability = ttp.getSlotAvailability(location)
+            logger.debug("SlotAvailability retrieved for ${location.simpleName}: $slotAvailability")
 
-        publisher?.publish(publisherRequest, message)
+            val hasAvailableSlots = slotAvailability.availableSlots.isNotEmpty()
+            if (hasAvailableSlots) {
+                slotAvailability.availableSlots.forEach { availableSlot ->
+                    if (availableSlot.active && availableSlot.startTimestamp.isBefore(before)) {
+                        val message = "Found a slot at ${location.simpleName} starting at" +
+                                " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
+                        publishTo.forEach { publish(publishers, it, message) }
+                    } else {
+                        logger.warn("Slot available, but after requested date of $before: $availableSlot.")
+                    }
+                }
+            }
+
+            return@async hasAvailableSlots
+        }
     }
 
+    private suspend fun publish(publishers: Map<String, Publisher>, publishTo: String, message: String) =
+       with(CoroutineScope(coroutineContext)) {
+            launch {
+                val request = publishTo.split('=')
+                val publisher = publishers[request[0]]
+                val publisherRequest = request.getOrElse(1) { "" }
+
+                publisher?.publish(publisherRequest, message)
+            }
+        }
+
     private fun normalize(
-        inputLocationIds: Collection<Int>,
-        availableLocations: Map<Int, TtpService.Location>
-    ) : Map<Int, TtpService.Location> {
-        val inputLocationByIds: Map<Int, TtpService.Location> =
-            availableLocations.filter { inputLocationIds.contains(it.key) }
+        inputLocationIds: Set<Int>,
+        availableLocations: List<TtpService.Location>
+    ): Set<TtpService.Location> {
+        val inputLocationByIds = availableLocations.filter { inputLocationIds.contains(it.id) }.associateBy { it.id }
 
         if (inputLocationByIds.size != inputLocationIds.size) {
-            val invalidIds = inputLocationIds.toSet().filterNot(inputLocationByIds::containsKey)
+            val invalidIds = inputLocationIds.filterNot(inputLocationByIds::containsKey)
             throw IllegalArgumentException("Following locationIds are not valid: $invalidIds")
         }
 
-        return inputLocationByIds
+        return inputLocationByIds.values.toSet()
     }
 
     companion object {

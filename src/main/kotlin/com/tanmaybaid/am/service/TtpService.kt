@@ -63,7 +63,9 @@ class TtpService(private val http: HttpClient) {
         val inviteOnly: Boolean,
         val operational: Boolean,
         val services: List<LocationService>,
-    )
+    ) {
+        val simpleName = "${shortName.trim()} ($id)"
+    }
 
     data class SlotAvailability(
         val availableSlots: List<AvailableSlot>,
