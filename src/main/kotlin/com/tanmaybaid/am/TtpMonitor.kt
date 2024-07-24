@@ -49,11 +49,11 @@ class TtpMonitor : CliktCommand() {
         .help("Comma seperated list of location ids.")
         .int().split(",").required()
     private val pollPeriod: Duration by option()
-        .help("[Optional] [Default: 30] Seconds to wait between polling for available slots.")
-        .int().restrictTo(10..3600).convert { it.seconds }.default(30.seconds)
+        .help("[Optional] [Default: 15] Seconds to wait between polling for available slots.")
+        .int().restrictTo(10..3600).convert { it.seconds }.default(15.seconds)
     private val backoffPeriod: Duration by option()
-        .help("[Optional] [Default: 5] Minutes to wait after identifying available slots.")
-        .int().restrictTo(1).convert { it.seconds }.default(5.minutes)
+        .help("[Optional] [Defaults to poll period] Seconds to wait after identifying available slots.")
+        .int().restrictTo(10..36000).convert { it.seconds }.default(pollPeriod)
     private val before: LocalDateTime by option()
         .help("[Optional] [Publisher called for any available slots] Date in the ISO_LOCAL_DATE_TIME format" +
                 " (e.g. 2024-05-01T08:25:30). Publisher will only be invoked if available slot is before this date.")
@@ -80,6 +80,7 @@ class TtpMonitor : CliktCommand() {
         val inputLocationByIds: Map<Int, TtpService.Location> = normalize(locationIds, availableLocations)
 
         while (!Thread.interrupted()) {
+            var slotsFound = false
             inputLocationByIds.forEach { (id, location) ->
                 val slotAvailability: TtpService.SlotAvailability = ttp.getSlotAvailability(location)
                 logger.debug("SlotAvailability retrieved for $id (${location.shortName}): $slotAvailability")
@@ -93,7 +94,7 @@ class TtpMonitor : CliktCommand() {
                                     " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
                             publishTo.forEach { publish(publishers, it, message) }
 
-                            delay(backoffPeriod)
+                            slotsFound = true
                         } else {
                             logger.info("Slot available, but after requested date of $before: $availableSlot.")
                         }
@@ -101,8 +102,9 @@ class TtpMonitor : CliktCommand() {
                 }
             }
 
-            logger.info("Sleeping for $pollPeriod before checking again...")
-            delay(pollPeriod)
+            val delay = if (slotsFound) backoffPeriod else pollPeriod
+            logger.info("Sleeping for $delay before checking again.")
+            delay(delay)
         }
 
         logger.info("Exiting!")
