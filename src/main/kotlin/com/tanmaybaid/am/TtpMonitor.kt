@@ -12,6 +12,8 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.restrictTo
+import com.tanmaybaid.am.model.Location
+import com.tanmaybaid.am.model.SlotAvailability
 import com.tanmaybaid.am.publisher.LogPublisher
 import com.tanmaybaid.am.publisher.Publisher
 import com.tanmaybaid.am.publisher.PushoverPublisher
@@ -22,13 +24,10 @@ import io.ktor.client.engine.apache5.Apache5
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
 import java.time.LocalDateTime
-import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -65,7 +64,7 @@ class TtpMonitor : CliktCommand() {
         .help("[Optional] [Default: Log] Comma separated list of publishers, e.g. $PUBLISH_TO_EXAMPLES")
         .split(",").default(listOf("Log"))
 
-    override fun run() {
+    override fun run() = runBlocking {
         val ttp = TtpService(client)
         val publishers = listOf(
             LogPublisher(),
@@ -73,14 +72,12 @@ class TtpMonitor : CliktCommand() {
             WebHookPublisher(client),
         ).associateBy(Publisher::name)
 
-        runBlocking {
-            run(ttp, publishers)
-        }
+        run(ttp, publishers).join()
     }
 
-    private suspend fun run(ttp: TtpService, publishers: Map<String, Publisher>) {
-        val availableLocations: List<TtpService.Location> = ttp.getLocations()
-        val inputLocations: Set<TtpService.Location> = normalize(locationIds.toSet(), availableLocations)
+    private fun CoroutineScope.run(ttp: TtpService, publishers: Map<String, Publisher>) = launch {
+        val availableLocations: List<Location> = ttp.getLocations()
+        val inputLocations: Set<Location> = normalize(locationIds.toSet(), availableLocations)
 
         while (!Thread.interrupted()) {
             val hasAvailableSlots = inputLocations.associateWith { location ->
@@ -101,47 +98,46 @@ class TtpMonitor : CliktCommand() {
         logger.info("Exiting!")
     }
 
-    private suspend fun checkSlotAvailability(
+    private fun CoroutineScope.checkSlotAvailability(
         ttp: TtpService,
-        location: TtpService.Location,
+        location: Location,
         publishers: Map<String, Publisher>,
-    ) = with(CoroutineScope(coroutineContext)) {
-        async {
-            val slotAvailability: TtpService.SlotAvailability = ttp.getSlotAvailability(location)
-            logger.debug("SlotAvailability retrieved for ${location.simpleName}: $slotAvailability")
+    ) = async {
+        val slotAvailability: SlotAvailability = ttp.getSlotAvailability(location)
+        logger.debug("SlotAvailability retrieved for ${location.simpleName}: $slotAvailability")
 
-            val hasAvailableSlots = slotAvailability.availableSlots.isNotEmpty()
-            if (hasAvailableSlots) {
-                slotAvailability.availableSlots.forEach { availableSlot ->
-                    if (availableSlot.active && availableSlot.startTimestamp.isBefore(before)) {
-                        val message = "Found a slot at ${location.simpleName} starting at" +
-                                " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
-                        publishTo.forEach { publish(publishers, it, message) }
-                    } else {
-                        logger.warn("Slot available, but after requested date of $before: $availableSlot.")
-                    }
+        val hasAvailableSlots = slotAvailability.availableSlots.isNotEmpty()
+        if (hasAvailableSlots) {
+            slotAvailability.availableSlots.forEach { availableSlot ->
+                if (availableSlot.active && availableSlot.startTimestamp.isBefore(before)) {
+                    val message = "Found a slot at ${location.simpleName} starting at" +
+                            " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
+
+                    publishTo.forEach { publish(publishers, it, message) }
+                } else {
+                    logger.warn("Slot available, but after requested date of $before: $availableSlot.")
                 }
             }
-
-            return@async hasAvailableSlots
         }
+
+        hasAvailableSlots
     }
 
-    private suspend fun publish(publishers: Map<String, Publisher>, publishTo: String, message: String) =
-       with(CoroutineScope(coroutineContext)) {
-            launch {
-                val request = publishTo.split('=')
-                val publisher = publishers[request[0]]
-                val publisherRequest = request.getOrElse(1) { "" }
+    private fun CoroutineScope.publish(
+        publishers: Map<String, Publisher>,
+        publishTo: String,
+        message: String
+    ) = launch {
+        val (publisherName, publisherRequest) = publishTo.split('=')
+        val publisher = publisherName?.let { publishers[it] }
 
-                publisher?.publish(publisherRequest, message)
-            }
-        }
+        publisher?.publish(publisherRequest.orEmpty(), message)
+    }
 
     private fun normalize(
         inputLocationIds: Set<Int>,
-        availableLocations: List<TtpService.Location>
-    ): Set<TtpService.Location> {
+        availableLocations: List<Location>
+    ): Set<Location> {
         val inputLocationByIds = availableLocations.filter { inputLocationIds.contains(it.id) }.associateBy { it.id }
 
         if (inputLocationByIds.size != inputLocationIds.size) {
@@ -169,4 +165,7 @@ class TtpMonitor : CliktCommand() {
               - "Log"
         """
     }
+
+    operator fun <T> List<T>.component1(): T? = getOrNull(0)
+    operator fun <T> List<T>.component2(): T? = getOrNull(1)
 }

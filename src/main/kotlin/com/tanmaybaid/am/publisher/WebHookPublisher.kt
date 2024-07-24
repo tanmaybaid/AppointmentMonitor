@@ -9,9 +9,8 @@ import io.ktor.http.contentType
 
 class WebHookPublisher(private val http: HttpClient) : Publisher {
     override suspend fun publish(request: String, message: String) {
-        val requestParts = request.split('|')
-        val url = requestParts[0]
-        val key = requestParts.getOrElse(1) { "Content" }
+        val (url, param) = request.split('|')
+        val key = param ?: "Content"
 
         http.post {
             url(url)

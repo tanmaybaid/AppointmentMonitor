@@ -1,5 +1,7 @@
 package com.tanmaybaid.am.service
 
+import com.tanmaybaid.am.model.Location
+import com.tanmaybaid.am.model.SlotAvailability
 import com.tanmaybaid.am.publisher.LogPublisher
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -7,8 +9,6 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
-import java.time.LocalDate
-import java.time.LocalDateTime
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 
@@ -40,46 +40,6 @@ class TtpService(private val http: HttpClient) {
             throw ex
         }
     }
-
-    data class LocationService(
-        val id: Int,
-        val name: String,
-    )
-
-    data class Location(
-        val id: Int,
-        val name: String,
-        val shortName: String,
-        val locationType: String,
-        val locationCode: String,
-        val address: String,
-        val addressAdditional: String,
-        val city: String,
-        val state: String,
-        val postalCode: String,
-        val countryCode: String,
-        val tzData: String,
-        val temporary: Boolean,
-        val inviteOnly: Boolean,
-        val operational: Boolean,
-        val services: List<LocationService>,
-    ) {
-        val simpleName = "${shortName.trim()} ($id)"
-    }
-
-    data class SlotAvailability(
-        val availableSlots: List<AvailableSlot>,
-        val lastPublishedDate: LocalDateTime?
-    )
-
-    data class AvailableSlot(
-        val locationId: Int,
-        val startTimestamp: LocalDateTime,
-        val endTimestamp: LocalDateTime,
-        val active: Boolean,
-        val duration: Int,
-        val remoteInd: Boolean
-    )
 
     companion object {
         private const val ENDPOINT = "https://ttp.cbp.dhs.gov/schedulerapi"
