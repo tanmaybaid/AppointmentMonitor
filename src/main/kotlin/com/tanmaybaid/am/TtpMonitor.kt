@@ -26,6 +26,7 @@ import io.ktor.serialization.jackson.jackson
 import java.time.LocalDateTime
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -81,7 +82,11 @@ class TtpMonitor : CliktCommand() {
 
         while (!Thread.interrupted()) {
             val hasAvailableSlots = inputLocations.associateWith { location ->
-                checkSlotAvailability(ttp, location, publishers)
+                try {
+                    checkSlotAvailability(ttp, location, publishers)
+                } catch (ex: Exception) {
+                    CompletableDeferred(false)
+                }
             }.mapValues { (_, deferred) ->
                 deferred.await()
             }
@@ -149,7 +154,6 @@ class TtpMonitor : CliktCommand() {
     }
 
     companion object {
-        private val logger: Logger = LogManager.getLogger(LogPublisher::class.java.name)
         private const val PUBLISH_TO_EXAMPLES = """
             - For slack or chime webhooks:
               - To use default message field "Content: "Webhook=webhook_url"
@@ -164,6 +168,8 @@ class TtpMonitor : CliktCommand() {
             - For Logs on STDOUT:
               - "Log"
         """
+
+        private val logger: Logger = LogManager.getLogger(LogPublisher::class.java.name)
     }
 
     operator fun <T> List<T>.component1(): T? = getOrNull(0)
