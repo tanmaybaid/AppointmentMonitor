@@ -21,6 +21,7 @@ import com.tanmaybaid.am.publisher.WebHookPublisher
 import com.tanmaybaid.am.service.TtpService
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.apache5.Apache5
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
 import java.time.LocalDateTime
@@ -38,6 +39,12 @@ import org.apache.logging.log4j.Logger
 class TtpMonitor : CliktCommand() {
     private val client: HttpClient by lazy {
         HttpClient(Apache5) {
+            install(HttpTimeout) {
+                requestTimeoutMillis = 4000
+                connectTimeoutMillis = 5000
+                socketTimeoutMillis = 5000
+            }
+
             install(ContentNegotiation) {
                 jackson {
                     configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
