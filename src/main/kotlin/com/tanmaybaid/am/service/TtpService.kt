@@ -22,7 +22,7 @@ class TtpService(private val http: HttpClient) {
     private suspend inline fun <reified T> call(api: String, vararg params: Pair<String, Any?>): T {
         val url = "$ENDPOINT/$api/"
 
-        val failed = "Request to $url with params: $params failed"
+        val failed = "Request to $url with params: ${toQueryParams(*params)} failed"
         val response = try {
             http.get {
                 url(url)
@@ -40,6 +40,9 @@ class TtpService(private val http: HttpClient) {
             throw ex
         }
     }
+
+    private fun toQueryParams(vararg params: Pair<String, Any?>) =
+        params.joinToString("&") { "${it.first}=${it.second}" }
 
     companion object {
         private const val ENDPOINT = "https://ttp.cbp.dhs.gov/schedulerapi"

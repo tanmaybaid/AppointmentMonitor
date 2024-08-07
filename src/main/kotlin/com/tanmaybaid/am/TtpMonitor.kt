@@ -21,6 +21,7 @@ import com.tanmaybaid.am.publisher.WebHookPublisher
 import com.tanmaybaid.am.service.TtpService
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.apache5.Apache5
+import io.ktor.client.plugins.HttpRequestRetry
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
@@ -39,10 +40,17 @@ import org.apache.logging.log4j.Logger
 class TtpMonitor : CliktCommand() {
     private val client: HttpClient by lazy {
         HttpClient(Apache5) {
+            install(HttpRequestRetry) {
+                maxRetries = 3
+                retryOnServerErrors(maxRetries)
+                retryOnException(maxRetries, retryOnTimeout = true)
+                exponentialDelay()
+            }
+
             install(HttpTimeout) {
-                requestTimeoutMillis = 4000
-                connectTimeoutMillis = 5000
-                socketTimeoutMillis = 5000
+                requestTimeoutMillis = 2000
+                connectTimeoutMillis = 3000
+                socketTimeoutMillis = 3000
             }
 
             install(ContentNegotiation) {
