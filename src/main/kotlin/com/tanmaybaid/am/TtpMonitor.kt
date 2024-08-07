@@ -48,9 +48,9 @@ class TtpMonitor : CliktCommand() {
             }
 
             install(HttpTimeout) {
-                requestTimeoutMillis = 2000
-                connectTimeoutMillis = 3000
-                socketTimeoutMillis = 3000
+                requestTimeoutMillis = 6000
+                connectTimeoutMillis = 5000
+                socketTimeoutMillis = 5000
             }
 
             install(ContentNegotiation) {
