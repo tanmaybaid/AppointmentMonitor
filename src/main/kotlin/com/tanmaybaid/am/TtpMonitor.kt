@@ -41,9 +41,7 @@ class TtpMonitor : CliktCommand() {
     private val client: HttpClient by lazy {
         HttpClient(Apache5) {
             install(HttpRequestRetry) {
-                maxRetries = 3
-                retryOnServerErrors(maxRetries)
-                retryOnException(maxRetries, retryOnTimeout = true)
+                retryOnException(maxRetries = 3, retryOnTimeout = true)
                 exponentialDelay()
             }
 
