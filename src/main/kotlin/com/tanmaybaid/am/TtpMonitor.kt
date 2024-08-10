@@ -105,7 +105,7 @@ class TtpMonitor : CliktCommand() {
             }
 
             val locationsWithNoAvailableSlots = hasAvailableSlots.filter { !it.value }.keys.map { it.simpleName }
-            if (locationsWithNoAvailableSlots.size > 1) {
+            if (locationsWithNoAvailableSlots.isNotEmpty()) {
                 LOGGER.info { "No slots found for ${locationsWithNoAvailableSlots.joinToString()}." }
             }
 
