@@ -18,5 +18,5 @@ data class Location(
     val operational: Boolean,
     val services: List<LocationService>,
 ) {
-    val simpleName = "${shortName.trim()} ($id)"
+    val simpleName = "${shortName.trim().ifBlank { name.trim() }} ($id)"
 }

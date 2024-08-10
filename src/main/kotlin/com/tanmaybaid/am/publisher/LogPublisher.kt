@@ -1,14 +1,13 @@
 package com.tanmaybaid.am.publisher
 
-import org.apache.logging.log4j.LogManager
-import org.apache.logging.log4j.Logger
+import org.apache.logging.log4j.kotlin.logger
 
 class LogPublisher : Publisher {
     override suspend fun publish(request: String, message: String) {
-        logger.info(message)
+        LOGGER.info { message }
     }
 
     companion object {
-        private val logger: Logger = LogManager.getLogger(LogPublisher::class.java.name)
+        private val LOGGER = logger()
     }
 }

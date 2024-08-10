@@ -34,8 +34,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import org.apache.logging.log4j.LogManager
-import org.apache.logging.log4j.Logger
+import org.apache.logging.log4j.kotlin.logger
 
 class TtpMonitor : CliktCommand() {
     private val client: HttpClient by lazy {
@@ -90,7 +89,7 @@ class TtpMonitor : CliktCommand() {
     }
 
     private fun CoroutineScope.run(ttp: TtpService, publishers: Map<String, Publisher>) = launch {
-        val availableLocations: List<Location> = ttp.getLocations()
+        val availableLocations: List<Location> = ttp.getLocations().getOrThrow()
         val inputLocations: Set<Location> = normalize(locationIds.toSet(), availableLocations)
 
         while (!Thread.interrupted()) {
@@ -98,6 +97,7 @@ class TtpMonitor : CliktCommand() {
                 try {
                     checkSlotAvailability(ttp, location, publishers)
                 } catch (ex: Exception) {
+                    LOGGER.warn(ex) { "Failed to check slot availability for ${location.id} due to ${ex.message}" }
                     CompletableDeferred(false)
                 }
             }.mapValues { (_, deferred) ->
@@ -105,15 +105,17 @@ class TtpMonitor : CliktCommand() {
             }
 
             val locationsWithNoAvailableSlots = hasAvailableSlots.filter { !it.value }.keys.map { it.simpleName }
-            logger.info("No slots found for ${locationsWithNoAvailableSlots.joinToString()}.")
+            if (locationsWithNoAvailableSlots.size > 1) {
+                LOGGER.info { "No slots found for ${locationsWithNoAvailableSlots.joinToString()}." }
+            }
 
             val slotsFound = hasAvailableSlots.values.reduce { a, b -> a || b }
             val delay = if (slotsFound) backoffPeriod ?: pollPeriod else pollPeriod
-            logger.info("Sleeping for $delay before checking again.")
+            LOGGER.info { "Sleeping for $delay before checking again." }
             delay(delay)
         }
 
-        logger.info("Exiting!")
+        LOGGER.info { "Exiting!" }
     }
 
     private fun CoroutineScope.checkSlotAvailability(
@@ -121,20 +123,41 @@ class TtpMonitor : CliktCommand() {
         location: Location,
         publishers: Map<String, Publisher>,
     ) = async {
-        val slotAvailability: SlotAvailability = ttp.getSlotAvailability(location)
-        logger.debug("SlotAvailability retrieved for ${location.simpleName}: $slotAvailability")
+        val slotAvailability: SlotAvailability = ttp.getSlotAvailability(location).getOrThrow()
+        LOGGER.debug { "SlotAvailability retrieved for ${location.simpleName}: $slotAvailability" }
 
         val hasAvailableSlots = slotAvailability.availableSlots.isNotEmpty()
         if (hasAvailableSlots) {
-            slotAvailability.availableSlots.forEach { availableSlot ->
-                if (availableSlot.active && availableSlot.startTimestamp.isBefore(before)) {
-                    val message = "Found a slot at ${location.simpleName} starting at" +
-                            " ${availableSlot.startTimestamp} for ${availableSlot.duration} minutes."
+            val inactiveSlots = mutableListOf<LocalDateTime>()
+            val ineligibleSlots = mutableListOf<LocalDateTime>()
+            val eligibleSlots = mutableListOf<LocalDateTime>()
 
-                    publishTo.forEach { publish(publishers, it, message) }
+            slotAvailability.availableSlots.forEach { availableSlot ->
+                val slot = availableSlot.startTimestamp
+                if (availableSlot.active) {
+                    if (slot.isBefore(before)) {
+                        eligibleSlots.add(slot)
+                    } else {
+                        ineligibleSlots.add(slot)
+                    }
                 } else {
-                    logger.warn("Slot available, but after requested date of $before: $availableSlot.")
+                    inactiveSlots.add(slot)
                 }
+            }
+
+            if (eligibleSlots.isNotEmpty()) {
+                val message = "Found ${countSlots(eligibleSlots.size)}: ${eligibleSlots.joinToStringWithLast()}" +
+                        " at ${location.simpleName}"
+
+                publishTo.forEach { publish(publishers, it, message) }
+            }
+
+            if (ineligibleSlots.isNotEmpty()) {
+                LOGGER.debug { "Available slot after requested date of $before: $ineligibleSlots." }
+            }
+
+            if (inactiveSlots.isNotEmpty()) {
+                LOGGER.debug { "Slot available, but inactive: $inactiveSlots." }
             }
         }
 
@@ -182,7 +205,15 @@ class TtpMonitor : CliktCommand() {
               - "Log"
         """
 
-        private val logger: Logger = LogManager.getLogger(LogPublisher::class.java.name)
+        private val LOGGER = logger()
+    }
+
+    private fun <T> Collection<T>.joinToStringWithLast(limit: Int = 3) =
+        joinToString(limit = limit) + if (size > limit) " ${last()}" else ""
+
+    private fun countSlots(count: Int): String {
+        val suffix = if (count > 1) "s" else ""
+        return "$count slot$suffix"
     }
 
     operator fun <T> List<T>.component1(): T? = getOrNull(0)
