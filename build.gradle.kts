@@ -1,6 +1,9 @@
+val ktorVersion = "3.1.0"
+val log4jVersion = "2.24.3"
+
 plugins {
     application
-    kotlin("jvm") version "2.0.0"
+    kotlin("jvm") version "2.1.10"
 }
 
 group = "com.tanmaybaid"
@@ -11,50 +14,49 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.ajalt.clikt:clikt:4.4.0")
-    // Ktor: https://ktor.io/docs/client-create-new-application.html#add-dependencies
-    implementation("io.ktor:ktor-client-core:2.3.12")
-    implementation("io.ktor:ktor-client-apache5:2.3.12") // https://ktor.io/docs/client-engines.html
-    implementation("io.ktor:ktor-client-content-negotiation:2.3.12") // https://ktor.io/docs/client-serialization.html#add_content_negotiation_dependency
-    implementation("io.ktor:ktor-serialization-jackson:2.3.12") // https://ktor.io/docs/client-serialization.html
-    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2")
-    implementation("org.apache.logging.log4j:log4j-core:2.23.1")
+    // Logging
     implementation("org.apache.logging.log4j:log4j-api-kotlin:1.5.0")
-    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.23.1")
+    implementation("org.slf4j:slf4j-simple:2+")
 
-    testImplementation(kotlin("test"))
-}
+    // Ktor: https://ktor.io/docs/client-create-new-application.html#add-dependencies
+    implementation("io.ktor:ktor-client-core:$ktorVersion")
+    implementation("io.ktor:ktor-client-apache5:$ktorVersion") // https://ktor.io/docs/client-engines.html
+    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion") // https://ktor.io/docs/client-serialization.html#add_content_negotiation_dependency
+    implementation("io.ktor:ktor-serialization-jackson:$ktorVersion") // https://ktor.io/docs/client-serialization.html
 
-tasks.test {
-    useJUnitPlatform()
+    implementation("com.github.ajalt.clikt:clikt:4.4.0")
+
+    // Jackson
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2")
+
+    runtimeOnly("org.apache.logging.log4j:log4j-core:$log4jVersion")
+    runtimeOnly("org.apache.logging.log4j:log4j-jul:$log4jVersion")
+    runtimeOnly("org.apache.logging.log4j:log4j-slf4j-impl:$log4jVersion")
+
+    // Needed for asynchronous logging by log4j2
+    runtimeOnly("com.lmax:disruptor:3.4.4")
 }
 
 application {
     mainClass.set("com.tanmaybaid.am.AppointmentMonitorKt")
+    applicationDefaultJvmArgs = listOf(
+        "-XX:MaxRAMPercentage=90.0",
+        "-XX:MaxGCPauseMillis=100",
+        "-XX:+PerfDisableSharedMem",
+        "-XX:+ExitOnOutOfMemoryError",
+        "-XX:+ErrorFileToStderr",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "-Djava.net.preferIPv4Stack=true",
+        "-Dsun.net.inetaddr.ttl=1",
+        "-Dsun.net.inetaddr.negative.ttl=1",
+        "-Dlog4j2.configurationFile=log4j2.xml",
+        "-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager",
+        "-DLog4jContextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector",
+    )
 }
 
 tasks {
-    val fatJar = register<Jar>("appointment-monitor") {
-        dependsOn.addAll(listOf("compileJava", "compileKotlin", "processResources")) // We need this for Gradle optimization to work
-        archiveClassifier.set("standalone") // Naming the jar
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-        manifest { attributes(mapOf("Main-Class" to application.mainClass)) } // Provided we set it up in the application plugin configuration
-        val sourcesMain = sourceSets.main.get()
-        val contents = configurations.runtimeClasspath.get()
-            .map { if (it.isDirectory) it else zipTree(it) } +
-                sourcesMain.output
-        from(contents)
+    assemble {
+        dependsOn(installDist)
     }
-    build {
-        dependsOn(fatJar) // Trigger fat jar creation during build
-    }
-}
-
-tasks.register<JavaExec>("execute") {
-    classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set(application.mainClass)
-}
-
-kotlin {
-    jvmToolchain(21)
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="ERROR">
     <Properties>
-        <Property name="log-pattern">%d %-5p %C:%L - %m%n</Property>
+        <Property name="log-pattern">%d %-5p %c:%L - %m%n</Property>
     </Properties>
     <Appenders>
         <Console name="CONSOLE" target="SYSTEM_OUT">
